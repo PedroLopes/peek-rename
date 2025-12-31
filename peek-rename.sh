@@ -2,9 +2,6 @@
 
 set -e
 
-# -----------------------------
-# Defaults
-# -----------------------------
 INC=false
 APPEND=false
 COPY=false
@@ -12,9 +9,6 @@ GUI=false
 COUNTER=1
 DIR="."
 
-# -----------------------------
-# Parse arguments
-# -----------------------------
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -i|--inc) INC=true ;;
@@ -27,7 +21,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # -----------------------------
-# Helper: GUI input
+# GUI prompt with buttons
 # -----------------------------
 gui_prompt() {
   sleep 0.4
@@ -35,18 +29,35 @@ gui_prompt() {
 tell application "System Events"
   activate
 end tell
-display dialog "Describe this file:" default answer ""
-text returned of result
+
+try
+  set dlg to display dialog "Describe this file:" ¬
+    default answer "" ¬
+    buttons {"Back", "Skip", "Rename"} ¬
+    default button "Rename"
+  return button returned of dlg & "|" & text returned of dlg
+on error number -128
+  return "Quit|"
+end try
 EOF
 }
 
-
 # -----------------------------
-# Main loop
+# Build file list (for BACK)
 # -----------------------------
-for file in "$DIR"/*; do
-  [ -f "$file" ] || continue
+# in advanced bashes this can be done with
+# mapfile -t FILES < <(find "$DIR" -maxdepth 1 -type f | sort)
+# but for bash<=3 compatibility I switched to this iteration here
+FILES=()
+while IFS= read -r f; do
+  FILES+=("$f")
+done < <(find "$DIR" -maxdepth 1 -type f | sort)
 
+index=0
+total=${#FILES[@]}
+
+while [[ $index -lt $total ]]; do
+  file="${FILES[$index]}"
   base="$(basename "$file")"
   name="${base%.*}"
   ext="${base##*.}"
@@ -54,33 +65,43 @@ for file in "$DIR"/*; do
 
   echo "Previewing: $base"
 
-  # Quick Look preview (Finder-style Space)
   qlmanage -p "$file" >/dev/null 2>&1 &
   QLPID=$!
 
-  # Input
   if $GUI; then
-    desc=$(gui_prompt)
+    response=$(gui_prompt)
   else
-    read -p "Enter description (empty = skip, q = quit): " desc
+    read -p "Enter description (empty = skip, q = quit): " response
+    response="Rename|$response"
   fi
 
-  # Close Quick Look
   kill "$QLPID" >/dev/null 2>&1 || true
 
-  [[ "$desc" == "q" ]] && echo "Exiting." && exit 0
-  [[ -z "$desc" ]] && echo "Skipped." && echo && continue
+  IFS="|" read -r action desc <<< "$response"
 
-  # Sanitize
+  case "$action" in
+    Quit)
+      echo "Exiting."
+      exit 0
+      ;;
+    Skip)
+      ((index++))
+      continue
+      ;;
+    Back)
+      ((index > 0)) && ((index--))
+      continue
+      ;;
+    Rename)
+      [[ -z "$desc" ]] && ((index++)) && continue
+      ;;
+  esac
+
   safe_desc=$(echo "$desc" | tr ' ' '_' | tr -cd '[:alnum:]_-')
 
-  # Auto-numbering
   prefix=""
-  if $INC; then
-    prefix=$(printf "%02d_" "$COUNTER")
-  fi
+  $INC && prefix=$(printf "%02d_" "$COUNTER")
 
-  # Filename logic
   if $APPEND; then
     newname="${prefix}${name}_${safe_desc}.${ext}"
   else
@@ -89,7 +110,6 @@ for file in "$DIR"/*; do
 
   target="$dir/$newname"
 
-  # Copy or rename
   if $COPY; then
     cp -n "$file" "$target"
     echo "Copied → $newname"
@@ -99,6 +119,7 @@ for file in "$DIR"/*; do
   fi
 
   ((COUNTER++))
+  ((index++))
   echo
 done
 
