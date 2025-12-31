@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 
-set -e
+#set -e
+
+GUI_DELAY=0.8 #0.4 works for most CLI, but some filetype load slow
 
 INC=false
 APPEND=false
@@ -24,7 +26,7 @@ done
 # GUI prompt with buttons
 # -----------------------------
 gui_prompt() {
-  sleep 0.4
+  sleep $GUI_DELAY
   osascript <<EOF
 tell application "System Events"
   activate
@@ -49,14 +51,19 @@ EOF
 # mapfile -t FILES < <(find "$DIR" -maxdepth 1 -type f | sort)
 # but for bash<=3 compatibility I switched to this iteration here
 FILES=()
+echo "Found the following files:"
 while IFS= read -r f; do
   FILES+=("$f")
+  echo "$f"
 done < <(find "$DIR" -maxdepth 1 -type f | sort)
+
 
 index=0
 total=${#FILES[@]}
+#echo "$total"
 
 while [[ $index -lt $total ]]; do
+  #echo "$index is smaller than $total"
   file="${FILES[$index]}"
   base="$(basename "$file")"
   name="${base%.*}"
@@ -117,9 +124,11 @@ while [[ $index -lt $total ]]; do
     mv -n "$file" "$target"
     echo "Renamed → $newname"
   fi
+  #echo "$COUNTER"
 
   ((COUNTER++))
   ((index++))
-  echo
+  #echo "$COUNTER"
+  #echo "$index"
 done
 
